@@ -129,6 +129,7 @@ def main():
     """
     metrics_data = data_loader.metrics_data
 
+    # Convert systolic peaks from nanosecs to seconds 
     systolic_peaks_secs = np.array(metrics_data['systolicPeaks']) / 1e9
     #print("len of raw sys peaks: ", len(systolic_peaks_secs))
     raw_RRis = np.ediff1d(systolic_peaks_secs, to_begin=0)  
@@ -169,7 +170,7 @@ def main():
                 for hr in zip(smooth_HR_nofilter):
                     writer.writerow(hr)"""
     SDNN_2 = data_loader.calculate_SDNN(RRis)
-    SDNN = data_loader.calculate_segmented_sdnn(RRis)
+    SDNN = data_loader.calculate_segmented_sdnn(RRis, 100)
     print("SDNN not segmented: ", SDNN_2 *1000)
     print("SDNN test: ", SDNN * 1000)
     RMSSD = data_loader.calculate_RMSSD(RRis)
@@ -180,7 +181,7 @@ def main():
     print("mean RR intervals: ", np.mean(RRis) * 1000)
     print("mean HR start: ", mean_HR_star)
     
-    SDNN_cont = data_loader.smoothing_SDNN()
+    SDNN_cont = data_loader.smoothing_SDNN(RRis)
     """with open('contSDNN_sitting.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         for sdnn in zip(SDNN_cont):
@@ -190,7 +191,7 @@ def main():
     print("len of metrics_data SDNN: ", len(metrics_data['SDNN']['timestamps']), len(metrics_data['SDNN']['values']))
     print("gaus kernel SDNN values: ", np.array(SDNN_cont[:20]) *1000)
 
-    RMSSD_cont = data_loader.smoothing_RMSSD()
+    RMSSD_cont = data_loader.smoothing_RMSSD(RRis)
     """with open('contRMSSD_sitting.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         for rmssd in zip(RMSSD_cont):

@@ -10,9 +10,9 @@
                 "--data_path",
                 "/Users/ianlasic/SISLfflighttest2/1/1/participant_data/2025-07-23/BETATEST-3YK9T1L1K5/raw_data/v6",
                 "--start_time",
-                "16:14:00",
+                "14:00:00",
                 "--end_time",
-                "16:46:00"
+                "16:30:00"
             ],
             "console": "integratedTerminal"
         }

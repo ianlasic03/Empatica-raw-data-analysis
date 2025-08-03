@@ -516,12 +516,7 @@ class DataLoader:
         return SDNN
 
 
-    def calculate_segmented_sdnn(self, RRis_filter, segment_duration_sec=100):
-        """
-        Calculate SDNN across multiple segments, each with fixed duration in seconds.
-        rr_intervals: list of RR intervals in seconds
-        segment_duration_sec: duration of each segment in seconds (default: 5 min = 300 sec)
-        """
+    def calculate_segmented_sdnn(self, RRis_filter, segment_duration_sec):
         cumulative_time = np.cumsum(RRis_filter)
         #print(cumulative_time)
 
@@ -540,11 +535,11 @@ class DataLoader:
     """
     Use a gaussian kernel for moving average SDNN
     """
-    def smoothing_SDNN(self, sigma=3.0):
+    def smoothing_SDNN(self, RRis, sigma=3.0):
         SDNN_values = []
         weights = []
         # Loop through time stamps 
-        RRis = self.metrics_data['rr_intervals_clean']['values']
+        #RRis = self.metrics_data['rr_intervals_clean']['values']
         timestamps = self.metrics_data['rr_intervals_clean']['timestamps']
         rri_time = np.array(self.parse_timestamps(timestamps))
 
@@ -565,11 +560,11 @@ class DataLoader:
         self.metrics_data['SDNN']['values'] = np.array(SDNN_values) * 1000
         return SDNN_values
     
-    def smoothing_RMSSD(self, sigma=3.0):
+    def smoothing_RMSSD(self, RRis, sigma=3.0):
         RMSSD_values = []
         weights = []
         # Loop through time stamps 
-        RRis = self.metrics_data['rr_intervals_clean']['values']
+        #RRis = self.metrics_data['rr_intervals_clean']['values']
         timestamps = self.metrics_data['rr_intervals_clean']['timestamps']
         rri_time = np.array(self.parse_timestamps(timestamps))
 
