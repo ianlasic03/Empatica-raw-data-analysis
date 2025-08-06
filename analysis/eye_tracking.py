@@ -110,7 +110,8 @@ class EyeTracking():
                       [-np.sin(-phi), np.cos(-phi), 0],
                       [0, 0, 1]
                       ])
-        Rot_matrix = T3 @ T1 @ T2
+        Rot_matrix = T1 @ T2 @ T3
+
         #print(Rot_matrix)
         return Rot_matrix
 
@@ -119,7 +120,7 @@ def main():
     eyetracking = EyeTracking('eye_tracking/eye_log_2.csv')
     eye_data = eyetracking.read_eyetracking(eyetracking.input_file)
     stopwatch = eye_data['stopwatch']
-    forward_sanity_checks = [[0, 0, 0], [0,0,45], [0,0,-45], [0,45,0], [0,-45,0], [45,0,0], [-45,0,0]]
+    forward_sanity_checks = [[0, 0, 0], [0,0,45], [0,0,-45], [0,45,0], [0,-45,0], [45,0,0], [-45,0,0], [45,0,45], [45,0,-45], [-45,0,45], [-45,0,-45],[45,45,0],[-45,-45,0]]
     # reversed dz because aircraft has z pointing towards tail
     eye_tracking_forward = np.array([0,0,1])
     eye_aircraft = eyetracking.eye_to_aircraft(np.array([0, 0, 1]))
