@@ -3,13 +3,10 @@ import re
 from fastavro import reader
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import csv
 from scipy.interpolate import CubicSpline, interp1d
 from scipy.signal import savgol_filter
-from datetime import datetime, timezone, time
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-import neurokit2 as nk
 
 class DataLoader:
     def __init__(self, data_path):

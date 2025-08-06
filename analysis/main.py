@@ -4,10 +4,8 @@ import matplotlib.pyplot as plt
 import csv
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone, time, timedelta
-import pytz
+from datetime import datetime
 from zoneinfo import ZoneInfo
-import neurokit2 as nk
 
 
 def plot_heart_rate(rr_intervals_timestamps, hrt, smooth_hrt):
