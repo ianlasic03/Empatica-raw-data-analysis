@@ -1,3 +1,5 @@
 *.csv
 *.avro
 *.png
+*.obj
+*.mtl

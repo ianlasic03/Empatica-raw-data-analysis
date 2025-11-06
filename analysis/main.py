@@ -1,4 +1,4 @@
-from dataLoader import DataLoader
+from dataLoader2 import DataLoader2
 import argparse
 import matplotlib.pyplot as plt
 import csv
@@ -100,22 +100,22 @@ def plot_RR_intervals(rr_intervals_timestamps, rr_intervals_values):
     plt.tight_layout()
     plt.show()
 
-
 def main():
     parser = argparse.ArgumentParser(description='Load and process raw data')
-    parser.add_argument('--data_path', type=str, required=True, help='Path to the raw data directory')
-    parser.add_argument("--start_time", required=False, default=None, help="Start time in HH:MM or HH:MM:SS")
-    parser.add_argument("--end_time", required=False, default=None, help="End time in HH:MM or HH:MM:SS")
+    parser.add_argument("--input", type=str, required=True, help='Path to the raw data directory')
+    parser.add_argument("--start", required=False, default=None, help="Start time in HH:MM or HH:MM:SS")
+    parser.add_argument("--end", required=False, default=None, help="End time in HH:MM or HH:MM:SS")
+    parser.add_argument("--output", type=str, required=False, default=None, help='Path to the raw data directory')
     args = parser.parse_args()
     
-    if args.start_time == None and args.end_time == None:
+    if args.start == None and args.end == None:
         start_time = None
         end_time = None
     else: 
-        start_time = (datetime.strptime(args.start_time, '%H:%M:%S')).time()
-        end_time = (datetime.strptime(args.end_time, '%H:%M:%S')).time()
+        start_time = (datetime.strptime(args.start, '%H:%M:%S')).time()
+        end_time = (datetime.strptime(args.end, '%H:%M:%S')).time()
             
-    data_loader = DataLoader(args.data_path)
+    data_loader = DataLoader2(args.input)
 
     # Process the avro files
     data_loader.process_avro_files_test(start_time, end_time)
@@ -129,48 +129,21 @@ def main():
 
     # Convert systolic peaks from nanosecs to seconds 
     systolic_peaks_secs = np.array(metrics_data['systolicPeaks']) / 1e9
-    #print("len of raw sys peaks: ", len(systolic_peaks_secs))
-    raw_RRis = np.ediff1d(systolic_peaks_secs, to_begin=0)  
+    # Calculate differences between systolic peaks
     
-    raw_RRis[0] = np.mean(raw_RRis[1:])
-    """with open('raw_rris_sitting.csv', 'w', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                for rr in zip(raw_RRis):
-                    writer.writerow(rr)"""
-    
-    # RR intervals with cleaned systolic peaks
+    # RR intervals with cleaned systolic peaks (Lipponen, J. A., & Tarvainen autobeat correction)
     _, clean_peaks = data_loader.clean_systolic_peaks(systolic_peaks_secs)
-    #print("post clean length of sys peaks: ", len(clean_peaks))
 
-    RRis, sys_peaks = data_loader.calculate_RR_intervals(clean_peaks, Cleaned=True)
-    #plot_RR_intervals(metrics_data['rr_intervals_clean']['timestamps'], RRis)
-
-    #print("raw length of rris: ", len(raw_RRis))
-    #print("post RRis calc length of rris: ", len(RRis))
-
+    RRis, sys_peaks = data_loader.calculate_RR_intervals(clean_peaks)
+   
     # RRis with auto beat correction (Good for testing threshold correction in Kubios)
-    """with open('rr_nofilter_watch_data_sitting.csv', 'w', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                for rr in zip(RRis):
-                    writer.writerow(rr)
-    """
-    RRis, sys_peaks = data_loader.apply_threshold_correction(sys_peaks, Cleaned=True)    
-    #plot_RR_intervals(metrics_data['rr_intervals_clean']['timestamps'], RRis)
-    """with open('rr_nofilter_watch_data_2.csv', 'w', newline='') as csvfile:
-                    writer = csv.writer(csvfile)
-                    for rr in zip(RRis):
-                        writer.writerow(rr)"""
-    #print("post threshold correction len of RRis: ", len(RRis))
-    HR_nofilter = data_loader.calculate_heartrate(RRis)
-    smooth_HR_nofilter = data_loader.smooth_heart_rate(HR_nofilter)
-    """with open('smoothHR_sitting.csv', 'w', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                for hr in zip(smooth_HR_nofilter):
-                    writer.writerow(hr)"""
-    SDNN_2 = data_loader.calculate_SDNN(RRis)
-    SDNN = data_loader.calculate_segmented_sdnn(RRis, 100)
-    print("SDNN not segmented: ", SDNN_2 *1000)
-    print("SDNN test: ", SDNN * 1000)
+    RRis, sys_peaks = data_loader.apply_threshold_correction(sys_peaks)    
+    
+    HR = data_loader.calculate_heartrate(RRis)
+    smooth_HR = data_loader.smooth_heart_rate(HR)
+    
+    SDNN = data_loader.calculate_SDNN(RRis)
+    print("SDNN: ", SDNN *1000)
     RMSSD = data_loader.calculate_RMSSD(RRis)
     print("RMSSD: ", RMSSD * 1000)
 
@@ -180,35 +153,27 @@ def main():
     print("mean HR start: ", mean_HR_star)
     
     SDNN_cont = data_loader.smoothing_SDNN(RRis)
-    """with open('contSDNN_sitting.csv', 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        for sdnn in zip(SDNN_cont):
-            writer.writerow(sdnn) """
 
-    print("gaus kernel len: ", len(SDNN_cont))
-    print("len of metrics_data SDNN: ", len(metrics_data['SDNN']['timestamps']), len(metrics_data['SDNN']['values']))
-    print("gaus kernel SDNN values: ", np.array(SDNN_cont[:20]) *1000)
+    #print("gaus kernel len: ", len(SDNN_cont))
+    #print("len of metrics_data SDNN: ", len(metrics_data['SDNN']['timestamps']), len(metrics_data['SDNN']['values']))
+    #print("gaus kernel SDNN values: ", np.array(SDNN_cont[:20]) *1000)
 
     RMSSD_cont = data_loader.smoothing_RMSSD(RRis)
-    """with open('contRMSSD_sitting.csv', 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        for rmssd in zip(RMSSD_cont):
-            writer.writerow(rmssd)"""
     
     NN50, pNN50 = data_loader.calculate_pNN50(RRis)
     print("NN50: ", NN50)
     print("pNN50: ", pNN50)
 
-    #data_loader.output_data(metrics_data, sys_peaks, smooth_HR_nofilter, 'output_data_test_class.json')
+    data_loader.output_data(metrics_data, sys_peaks, smooth_HR, args.output)
 
     print("SDNN kernel avg: ", np.mean(SDNN_cont) * 1000)
     print("RMSSD kernel avg: ", np.mean(RMSSD_cont) * 1000)
     
     # Plot important metrics 
-    plot_RR_distribution(RRis)
-    plot_RR_intervals(metrics_data['rr_intervals_clean']['timestamps'], RRis)
-    plot_heart_rate(metrics_data['rr_intervals_clean']['timestamps'], HR_nofilter, smooth_HR_nofilter)
-    plot_heart_rate_SDNN_dual_axis(smooth_HR_nofilter, SDNN_cont, RMSSD_cont)
+    #plot_RR_distribution(RRis)
+    #plot_RR_intervals(metrics_data['rr_intervals_clean']['timestamps'], RRis)
+    plot_heart_rate(metrics_data['rr_intervals_clean']['timestamps'], HR, smooth_HR)
+    plot_heart_rate_SDNN_dual_axis(smooth_HR, SDNN_cont, RMSSD_cont)
 
  
 if __name__ == "__main__":
