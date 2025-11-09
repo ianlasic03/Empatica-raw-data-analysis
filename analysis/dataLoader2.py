@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from fastavro import reader
 import pandas as pd
 import numpy as np
@@ -9,6 +10,118 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 class DataLoader2:
+    
+    @staticmethod
+    def parse_metadata(metadata_path):
+        """
+        Parse pilot metadata JSON file to extract relevant information.
+        
+        Args:
+            metadata_path: Path to the metadata JSON file
+            
+        Returns:
+            dict: Contains pilot_id, flight_date, scenarios with timing and condition info
+        """
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        
+        # Parse scenarios with their conditions
+        scenarios = []
+        for i, scenario_letter in enumerate(metadata['scenario_order'], start=1):
+            scenario_key = f"scenario_{scenario_letter}"
+            scenario_info = metadata[scenario_key]
+            
+            # Determine condition (with_clippy or without_clippy)
+            condition = scenario_info.get('condition', '')
+            clippy_suffix = "_Clippy" if "with_clippy" in condition else ""
+            
+            # Parse start and end times
+            start_time = scenario_info.get('start_time')
+            end_time = scenario_info.get('end_time')
+            
+            scenarios.append({
+                'sequence': f"Seq{i}_{scenario_letter}",
+                'condition': condition,
+                'clippy_suffix': clippy_suffix,
+                'start_time': start_time,
+                'end_time': end_time
+            })
+        
+        return {
+            'pilot_id': metadata['pilot_id'],
+            'flight_date': metadata['flight_date'],
+            'scenarios': scenarios
+        }
+    
+    @staticmethod
+    def get_raw_data_path(flight_date, base_path="/Users/ianlasic/Empatica-raw-data-analysis/1/1/participant_data"):
+        """
+        Construct the path to the raw data v6 directory based on flight date.
+        
+        Args:
+            flight_date: Date in format YYYY-MM-DD
+            base_path: Base path to participant data
+            
+        Returns:
+            str: Path to raw_data/v6 directory, or None if not found
+        """
+        # Construct path to the date folder
+        date_folder = os.path.join(base_path, flight_date)
+        
+        if not os.path.exists(date_folder):
+            print(f"Warning: Date folder not found: {date_folder}")
+            return None
+        
+        # Look for BETATEST folder (should be only one)
+        betatest_folders = [f for f in os.listdir(date_folder) if f.startswith('BETATEST-')]
+        
+        if not betatest_folders:
+            print(f"Warning: No BETATEST folder found in {date_folder}")
+            return None
+        
+        if len(betatest_folders) > 1:
+            print(f"Warning: Multiple BETATEST folders found in {date_folder}, using first one: {betatest_folders[0]}")
+        
+        # Construct full path to raw_data/v6
+        raw_data_path = os.path.join(
+            date_folder,
+            betatest_folders[0],
+            "raw_data",
+            "v6"
+        )
+        
+        if not os.path.exists(raw_data_path):
+            print(f"Warning: raw_data/v6 not found: {raw_data_path}")
+            return None
+        
+        return raw_data_path
+    
+    @staticmethod
+    def get_output_path(flight_date, pilot_id, base_path="/Users/ianlasic/Empatica-raw-data-analysis/Flight_test_data"):
+        """
+        Construct the output path based on flight date and pilot ID.
+        
+        Args:
+            flight_date: Date in format YYYY-MM-DD
+            pilot_id: Pilot identifier
+            base_path: Base path to flight test data
+            
+        Returns:
+            str: Path to output directory
+        """
+        # Convert flight_date from YYYY-MM-DD to MM_DD format
+        date_parts = flight_date.split('-')
+        month_day = f"{date_parts[1]}_{date_parts[2]}"
+        
+        # Construct path: base_path/output_data_MM_DD/pilot_id_data
+        output_path = os.path.join(
+            base_path,
+            f"output_data_{month_day}",
+            f"{pilot_id}_data"
+        )
+        
+        return output_path
+    
     def __init__(self, data_path):
         self.data_path = data_path
         self.metrics_data = {
@@ -25,7 +138,6 @@ class DataLoader2:
         'RMSSD': {'timestamps': [], 'values': []}
         }
 
-    
     def get_timestamp_from_filename(self, filename):
         match = re.search(r'BETATEST_(\d+)', filename)
         return int(match.group(1)) if match else 0
@@ -511,6 +623,7 @@ class DataLoader2:
         self.metrics_data['rr_intervals_clean']['values'] = RR_intervals
         return RR_intervals, systolic_peaks_secs
 
+
     def apply_threshold_correction(self, systolic_peaks_secs):
         RR_intervals_new = self.threshold_correction(self.metrics_data)
         
@@ -575,9 +688,10 @@ class DataLoader2:
         smooth_hr = savgol_filter(heart_rate, 61, 3)
         return smooth_hr.tolist()
     
-
+    """
+    Calculate one shot SDNN over experiment
+    """
     def calculate_SDNN(self, RR_intervals):
-        # Calculate SDNN contiuously over the trial not just on stand alone measurement
         if len(RR_intervals) < 2:
             return 0.0
         mean_RR = np.mean(RR_intervals)
@@ -585,25 +699,22 @@ class DataLoader2:
         squared_diffs_mean = sum(squared_diffs) / (len(squared_diffs) - 1)
         SDNN = np.sqrt(squared_diffs_mean)
         return SDNN
-
-
-    def calculate_segmented_sdnn(self, RRis_filter, segment_duration_sec):
-        cumulative_time = np.cumsum(RRis_filter)
-
-        segments = []
-        start_idx = 0
-        while start_idx < len(cumulative_time):
-            end_time = cumulative_time[start_idx] + segment_duration_sec
-            end_idx = np.searchsorted(cumulative_time, end_time)
-            segment = RRis_filter[start_idx:end_idx]
-            if len(segment) > 1:
-                segments.append(np.std(segment, ddof=1))
-            start_idx = end_idx
-
-        return np.mean(segments) if segments else 0.0
+    
 
     """
-    Use a gaussian kernel for moving average SDNN
+    Calculate one shot RMSSD over experiment
+    """
+    def calculate_RMSSD(self, RR_intervals):
+        if len(RR_intervals) < 2:
+            return 0.0
+        diffs = np.diff(RR_intervals)
+        squared_diffs = diffs ** 2
+        RMSSD = np.sqrt(np.mean(squared_diffs))
+        return RMSSD
+
+
+    """
+    Guassian kernel for moving average/continuous SDNN measurments
     """
     def smoothing_SDNN(self, RRis, sigma=3.0):
         SDNN_values = []
@@ -629,6 +740,9 @@ class DataLoader2:
         self.metrics_data['SDNN']['values'] = np.array(SDNN_values) * 1000
         return SDNN_values
     
+    """
+    Guassian kernel for moving average/continuous RMSSD measurments
+    """
     def smoothing_RMSSD(self, RRis, sigma=3.0):
         RMSSD_values = []
         weights = []
@@ -655,15 +769,6 @@ class DataLoader2:
         self.metrics_data['RMSSD']['timestamps'] = timestamps
         self.metrics_data['RMSSD']['values'] = np.array(RMSSD_values) * 1000
         return RMSSD_values
-
-
-    def calculate_RMSSD(self, RR_intervals):
-        if len(RR_intervals) < 2:
-            return 0.0
-        diffs = np.diff(RR_intervals)
-        squared_diffs = diffs ** 2
-        RMSSD = np.sqrt(np.mean(squared_diffs))
-        return RMSSD
     
 
     def calculate_pNN50(self, RR_intervals):
@@ -675,40 +780,97 @@ class DataLoader2:
         pNN50 = (NN50 / len(RR_intervals)) * 100
         return NN50, pNN50
 
-    def output_data(self, metrics_data, sys_peaks, hrt, output_path): 
+
+    def output_data(self, end_time, metrics_data, sys_peaks, RRis, hrt, output_path, pilot_id, scenario_sequence, clippy_suffix, flight_date): 
+        """
+        Save processed data to JSON files with dynamic naming.
+        
+        Args:
+            end_time: End time of the scenario
+            metrics_data: Dictionary containing all metrics
+            sys_peaks: Systolic peaks array
+            RRis: RR intervals array
+            hrt: Heart rate array
+            output_path: Base output directory path
+            pilot_id: Pilot identifier (e.g., 'aldi', 'japh')
+            scenario_sequence: Scenario sequence (e.g., 'Seq1_A', 'Seq2_B')
+            clippy_suffix: Clippy suffix ('_Clippy' or '')
+            flight_date: Flight date in YYYY-MM-DD format
+        """
         # Create the output directory if it doesn't exist
         if not os.path.exists(output_path):
             os.makedirs(output_path)
+        
+        # Convert flight_date to MM_DD format for filenames
+        date_parts = flight_date.split('-')
+        date_str = f"{date_parts[1]}_{date_parts[2]}"
+        
+        # Construct base filename: pilot_id_scenario_clippy
+        base_filename = f"{pilot_id}_{scenario_sequence}{clippy_suffix}"
+        
+        # Save systolic peaks into a json file
+        sys_peaks_file = f'physio_{base_filename}_sys_peaks_{date_str}.json'
+        with open(os.path.join(output_path, sys_peaks_file), 'w') as f:
+            for i in range(len(sys_peaks)):
+                timestamp = datetime.fromtimestamp(sys_peaks[i], tz=timezone.utc).isoformat()
+                f.write(f'{{"source": "watch", "signal_id": "systolic_peaks", "timestamp": "{timestamp}", "value": "{sys_peaks[i]}", "unit": "Seconds"}}\n')
+
+        # Save the one shot RMSSD into a json file
+        rmssd_oneshot_file = f'physio_{base_filename}_RMSSD(1_shot)_{date_str}.json'
+        with open(os.path.join(output_path, rmssd_oneshot_file), 'w') as f:
+            # Calculate RMSSD value, multiply by 1000 to get in ms
+            RMSSD_value = self.calculate_RMSSD(RRis) * 1000
+            f.write(f'{{"source": "watch", "signal_id": "RMSSD", "timestamp": "{end_time}", "value": "{RMSSD_value}", "unit": "ms"}}\n')
+
+        # Save the one shot SDNN into a json file
+        sdnn_oneshot_file = f'physio_{base_filename}_SDNN(1_shot)_{date_str}.json'
+        with open(os.path.join(output_path, sdnn_oneshot_file), 'w') as f:
+            # Calculate SDNN value, multiply by 1000 to get in ms
+            SDNN_value = self.calculate_SDNN(RRis) * 1000
+            f.write(f'{{"source": "watch", "signal_id": "SDNN", "timestamp": "{end_time}", "value": "{SDNN_value}", "unit": "ms"}}\n')
 
         # Save the eda data into a json file
-        # output_data_09_09.json/vsen_data/vsen_seq1_B_clippy_eda_09_08.json
-        with open(os.path.join(output_path, 'japh_Seq2_B_Clippy_eda_09_17.json'), 'w') as f:
+        eda_file = f'physio_{base_filename}_eda_{date_str}.json'
+        with open(os.path.join(output_path, eda_file), 'w') as f:
             for i in range(len(metrics_data['eda']['timestamps'])):
                 timestamp = datetime.fromtimestamp(metrics_data['eda']['timestamps'][i] / 1e6, tz=timezone.utc).isoformat()
                 f.write(f'{{"source": "watch", "signal_id": "eda", "timestamp": "{timestamp}", "value": "{metrics_data["eda"]["values"][i]}", "unit": "microSiemens"}}\n')
 
         # Save the temperature data into a json file
-        with open(os.path.join(output_path, 'japh_Seq2_B_Clippy_temperature_09_17.json'), 'w') as f:
+        temp_file = f'physio_{base_filename}_temperature_{date_str}.json'
+        with open(os.path.join(output_path, temp_file), 'w') as f:
             for i in range(len(metrics_data['temperature']['timestamps'])):
                 timestamp = datetime.fromtimestamp(metrics_data['temperature']['timestamps'][i] / 1e6, tz=timezone.utc).isoformat()
                 f.write(f'{{"source": "watch", "signal_id": "temperature", "timestamp": "{timestamp}", "value": "{metrics_data["temperature"]["values"][i]}", "unit": "C"}}\n')
 
-        # Save the SDNN data into a json file
-        with open(os.path.join(output_path, 'japh_Seq2_B_Clippy_SDNN_09_17.json'), 'w') as f:
+        # Save the continuous SDNN data into a json file
+        sdnn_file = f'physio_{base_filename}_SDNN_{date_str}.json'
+        with open(os.path.join(output_path, sdnn_file), 'w') as f:
             for i in range(len(metrics_data['SDNN']['timestamps'])):
-                #print('type of timestamp', (metrics_data['SDNN']['timestamps'][i]))
                 timestamp = datetime.fromisoformat(metrics_data['SDNN']['timestamps'][i]).isoformat()
                 f.write(f'{{"source": "watch", "signal_id": "SDNN", "timestamp": "{timestamp}", "value": "{metrics_data["SDNN"]["values"][i]}", "unit": "ms"}}\n')
 
-        with open(os.path.join(output_path, 'japh_Seq2_B_Clippy_RMSSD_09_17.json'), 'w') as f:
+        # Save the continuous RMSSD data into a json file
+        rmssd_file = f'physio_{base_filename}_RMSSD_{date_str}.json'
+        with open(os.path.join(output_path, rmssd_file), 'w') as f:
             for i in range(len(metrics_data['RMSSD']['timestamps'])):
                 timestamp = datetime.fromisoformat(metrics_data['RMSSD']['timestamps'][i]).isoformat()
                 f.write(f'{{"source": "watch", "signal_id": "RMSSD", "timestamp": "{timestamp}", "value": "{metrics_data["RMSSD"]["values"][i]}", "unit": "ms"}}\n')
 
-        # Each line of the json file will be in this format: {"source":"watch","signal_id":"heart_rate","timestamp":"2025-06-24T18:24:11.640171+00:00","value":"66","unit":"bpm"}
-        with open(os.path.join(output_path, 'japh_Seq2_B_Clippy_heart_rate_09_17.json'), 'w') as f:
+        # Save the heart rate data into a json file
+        hr_file = f'physio_{base_filename}_heart_rate_{date_str}.json'
+        with open(os.path.join(output_path, hr_file), 'w') as f:
             for i in range(len(hrt)):
                 corresponding_sys = sys_peaks[i]
                 corresponding_rr_time = datetime.fromtimestamp(corresponding_sys, tz=timezone.utc).isoformat()
                 f.write(f'{{"source": "watch", "signal_id": "heart_rate", "timestamp": "{corresponding_rr_time}", "value": "{hrt[i]}", "unit": "bpm"}}\n')
         
+        print(f"\n✓ Data saved to: {output_path}")
+        print(f"  - {sys_peaks_file}")
+        print(f"  - {rmssd_oneshot_file}")
+        print(f"  - {sdnn_oneshot_file}")
+        print(f"  - {eda_file}")
+        print(f"  - {temp_file}")
+        print(f"  - {sdnn_file}")
+        print(f"  - {rmssd_file}")
+        print(f"  - {hr_file}")

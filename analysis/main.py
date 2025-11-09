@@ -102,20 +102,81 @@ def plot_RR_intervals(rr_intervals_timestamps, rr_intervals_values):
 
 def main():
     parser = argparse.ArgumentParser(description='Load and process raw data')
-    parser.add_argument("--input", type=str, required=True, help='Path to the raw data directory')
-    parser.add_argument("--start", required=False, default=None, help="Start time in HH:MM or HH:MM:SS")
-    parser.add_argument("--end", required=False, default=None, help="End time in HH:MM or HH:MM:SS")
-    parser.add_argument("--output", type=str, required=False, default=None, help='Path to the raw data directory')
+    parser.add_argument("--metadata", type=str, required=True, help='Path to the pilot metadata JSON file')
+    parser.add_argument("--scenario", type=int, required=True, help='Scenario number (1 or 2)')
+    parser.add_argument("--input", type=str, required=False, default=None, help='Path to the raw data directory (optional, will be determined from metadata)')
+    parser.add_argument("--output", type=str, required=False, default=None, help='Path to the output directory (optional, will be determined from metadata)')
+    parser.add_argument("--base_path", type=str, required=False, default="/Users/ianlasic/Empatica-raw-data-analysis/Flight_test_data", help='Base path to flight test data')
     args = parser.parse_args()
     
-    if args.start == None and args.end == None:
+    # Parse metadata
+    print(f"Loading metadata from: {args.metadata}")
+    metadata = DataLoader2.parse_metadata(args.metadata)
+    
+    pilot_id = metadata['pilot_id']
+    flight_date = metadata['flight_date']
+    
+    # Validate scenario number
+    if args.scenario < 1 or args.scenario > len(metadata['scenarios']):
+        raise ValueError(f"Invalid scenario number. Must be between 1 and {len(metadata['scenarios'])}")
+    
+    # Get scenario info (scenarios are 1-indexed)
+    scenario_info = metadata['scenarios'][args.scenario - 1]
+    scenario_sequence = scenario_info['sequence']
+    clippy_suffix = scenario_info['clippy_suffix']
+    start_time_iso = scenario_info['start_time']
+    end_time_iso = scenario_info['end_time']
+    
+    print(f"\nProcessing:")
+    print(f"  Pilot: {pilot_id}")
+    print(f"  Flight Date: {flight_date}")
+    print(f"  Scenario: {scenario_sequence} {clippy_suffix}")
+    print(f"  Start Time: {start_time_iso}")
+    print(f"  End Time: {end_time_iso}")
+    
+    # Determine input path (raw data directory)
+    if args.input:
+        input_path = args.input
+    else:
+        input_path = DataLoader2.get_raw_data_path(flight_date)
+    
+    if not input_path:
+        raise ValueError(f"Could not find raw data path for flight date: {flight_date}")
+    
+    print(f"  Input Path: {input_path}")
+    
+    # Determine output path
+    if args.output:
+        output_path = args.output
+    else:
+        output_path = DataLoader2.get_output_path(flight_date, pilot_id, args.base_path)
+    
+    print(f"  Output Path: {output_path}\n")
+    
+    # Parse start and end times from ISO format
+    if start_time_iso and end_time_iso:
+        try:
+            # Parse ISO timestamp and extract time component
+            start_dt = datetime.fromisoformat(start_time_iso)
+            start_time = start_dt.time()
+            
+            # Handle end_time - might be ISO format or might be duration string
+            if end_time_iso.startswith('20'):  # Looks like ISO timestamp
+                end_dt = datetime.fromisoformat(end_time_iso)
+                end_time = end_dt.time()
+            else:
+                # It's a duration string like "13 min 48 sec in" - set end_time to None for now
+                print(f"  Warning: End time is a duration string: {end_time_iso}")
+                end_time = None
+        except Exception as e:
+            print(f"  Warning: Could not parse timestamps: {e}")
+            start_time = None
+            end_time = None
+    else:
         start_time = None
         end_time = None
-    else: 
-        start_time = (datetime.strptime(args.start, '%H:%M:%S')).time()
-        end_time = (datetime.strptime(args.end, '%H:%M:%S')).time()
             
-    data_loader = DataLoader2(args.input)
+    data_loader = DataLoader2(input_path)
 
     # Process the avro files
     data_loader.process_avro_files_test(start_time, end_time)
@@ -126,11 +187,9 @@ def main():
     SDNN (timestamps, values), and RMSSD(timestamps, values)
     """
     metrics_data = data_loader.metrics_data
-
     # Convert systolic peaks from nanosecs to seconds 
     systolic_peaks_secs = np.array(metrics_data['systolicPeaks']) / 1e9
-    # Calculate differences between systolic peaks
-    
+
     # RR intervals with cleaned systolic peaks (Lipponen, J. A., & Tarvainen autobeat correction)
     _, clean_peaks = data_loader.clean_systolic_peaks(systolic_peaks_secs)
 
@@ -141,39 +200,43 @@ def main():
     
     HR = data_loader.calculate_heartrate(RRis)
     smooth_HR = data_loader.smooth_heart_rate(HR)
-    
-    SDNN = data_loader.calculate_SDNN(RRis)
-    print("SDNN: ", SDNN *1000)
-    RMSSD = data_loader.calculate_RMSSD(RRis)
-    print("RMSSD: ", RMSSD * 1000)
 
     RR = np.array(RRis)  # in seconds
     mean_HR_star = 60.0 / RR.mean()
-    print("mean RR intervals: ", np.mean(RRis) * 1000)
-    print("mean HR start: ", mean_HR_star)
+    #print("mean RR intervals: ", np.mean(RRis) * 1000)
+    #print("mean HR start: ", mean_HR_star)
+    
+    SDNN = data_loader.calculate_SDNN(RRis)
+    #print("SDNN: ", SDNN * 1000)
+    RMSSD = data_loader.calculate_RMSSD(RRis)
+    #print("RMSSD: ", RMSSD * 1000)
     
     SDNN_cont = data_loader.smoothing_SDNN(RRis)
 
-    #print("gaus kernel len: ", len(SDNN_cont))
-    #print("len of metrics_data SDNN: ", len(metrics_data['SDNN']['timestamps']), len(metrics_data['SDNN']['values']))
-    #print("gaus kernel SDNN values: ", np.array(SDNN_cont[:20]) *1000)
-
     RMSSD_cont = data_loader.smoothing_RMSSD(RRis)
-    
-    NN50, pNN50 = data_loader.calculate_pNN50(RRis)
-    print("NN50: ", NN50)
-    print("pNN50: ", pNN50)
 
-    data_loader.output_data(metrics_data, sys_peaks, smooth_HR, args.output)
+    # Save data with dynamic naming
+    data_loader.output_data(
+        end_time=end_time_iso,
+        metrics_data=metrics_data,
+        sys_peaks=sys_peaks,
+        RRis=RRis,
+        hrt=smooth_HR,
+        output_path=output_path,
+        pilot_id=pilot_id,
+        scenario_sequence=scenario_sequence,
+        clippy_suffix=clippy_suffix,
+        flight_date=flight_date
+    )
 
-    print("SDNN kernel avg: ", np.mean(SDNN_cont) * 1000)
-    print("RMSSD kernel avg: ", np.mean(RMSSD_cont) * 1000)
+    #print("SDNN kernel avg: ", np.mean(SDNN_cont) * 1000)
+    #print("RMSSD kernel avg: ", np.mean(RMSSD_cont) * 1000)
     
     # Plot important metrics 
     #plot_RR_distribution(RRis)
     #plot_RR_intervals(metrics_data['rr_intervals_clean']['timestamps'], RRis)
-    plot_heart_rate(metrics_data['rr_intervals_clean']['timestamps'], HR, smooth_HR)
-    plot_heart_rate_SDNN_dual_axis(smooth_HR, SDNN_cont, RMSSD_cont)
+    #plot_heart_rate(metrics_data['rr_intervals_clean']['timestamps'], HR, smooth_HR)
+    #plot_heart_rate_SDNN_dual_axis(smooth_HR, SDNN_cont, RMSSD_cont)
 
  
 if __name__ == "__main__":

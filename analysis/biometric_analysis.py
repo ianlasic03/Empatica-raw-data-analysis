@@ -74,14 +74,10 @@ def process_all_participants(base_path):
             results = access_files(folder_path)
             if results is not None:
                 # Add participant ID to results
+                # Results contains the sequnce, has_clippy, metric, average_value for each participant and file 
                 results['participant_id'] = participant_id
-
-                # --- START: Z-SCORE CALCULATION ---
-                # This is the new block. We group by metric to calculate the z-score
-                # for each metric type (eda, heart_rate, etc.) separately.
-                # .transform() applies the function to each group and returns a series
-                # with the same index as the original dataframe.
-                
+                print('results in process_partic: \n', results)
+               
                 # Define a small z-score function to handle cases with zero standard deviation
                 def z_score_transform(series):
                     mean = series.mean()
@@ -89,9 +85,10 @@ def process_all_participants(base_path):
                     if std == 0:
                         return 0 # Or handle as you see fit (e.g., return np.nan)
                     return (series - mean) / std
-
+                
+                # Group by metric (create separate categories for each biomertic) and access the average value 
                 results['z_score_value'] = results.groupby('metric')['average_value'].transform(z_score_transform)
-                # --- END: Z-SCORE CALCULATION ---
+                print(f'z-score {results['z_score_value']}')
                 
                 all_records.append(results)
 
